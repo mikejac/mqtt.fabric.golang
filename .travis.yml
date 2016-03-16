@@ -1,0 +1,14 @@
+language: go
+
+go:
+  - 1.5
+  - tip
+
+deploy:
+  provider: releases
+  file: 
+    - "ev3.mqtt.fabric.golang"
+    - "ev3.mqtt.fabric.golang.exe"
+  skip_cleanup: true
+  on:
+    tags: true

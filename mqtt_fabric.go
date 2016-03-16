@@ -74,7 +74,7 @@ type MqttFabric struct {
 
 // Initialize ...
 //
-func MqttFabricInitialize(broker string, port int, keepalive int, rootTopic string, nodename string, platformID string) *MqttFabric {
+func MqttFabricInitialize(broker string, port int, keepalive int, rootTopic string, nodename string, platformID string, classType ClassType) *MqttFabric {
     m := &MqttFabric{}
 
     m.StartTime     = time.Now()
@@ -83,7 +83,7 @@ func MqttFabricInitialize(broker string, port int, keepalive int, rootTopic stri
     m.OnOnramp      = nil
     m.OnOfframp     = nil
     
-    m.F = FabricInitialize(rootTopic, nodename, platformID, CONTROLLER)
+    m.F = FabricInitialize(rootTopic, nodename, platformID, classType)
     var lwtTopic, lwtMsg = m.F.StatusMessage(FABRIC_DISCONNECTED, 0)
     
     log.Println(lwtTopic)
@@ -155,6 +155,14 @@ func (m *MqttFabric) Start() (bool) {
 // Stop ...
 //
 func (m *MqttFabric) Stop() {
+    var topic, msg = m.F.StatusMessage(FABRIC_OFFLINE, time.Now().Unix() - m.StartTime.Unix())
+    
+    m.Mqtt.Publish(topic, 2, true, msg)
+    
+    log.Println(topic)
+    log.Println(msg)
+    
+    m.Mqtt.Disconnect(250)
 }
 
 // Run ...
@@ -206,17 +214,59 @@ func (m *MqttFabric) CtrlPubText(nodename string, platformID string, feedID stri
     m.Mqtt.Publish(topic, qos, retain, msg)
 }
 
+// DevicePubText ...
+//
+func (m *MqttFabric) DevicePubText(feedID string, data string, qos byte, retain bool) {
+    topic := m.F.DeviceOnrampTopic(SERVICE_ID_TEXT, feedID)
+    
+    log.Println(topic)
+    
+    type Data struct {
+        Type        string `json:"_type"`
+        FeedID      string `json:"feed_id"`
+        Value       string `json:"value"`
+    }
+    
+    type D struct {
+        Data Data `json:"d"`
+    }
+    
+	jsonMsg := D{
+		Data: Data{
+			Type:       SERVICE_ID_TEXT,
+            FeedID:     feedID,
+            Value:      data,
+		},
+	}
+    
+    msg, err := json.Marshal(jsonMsg)
+    
+	if err != nil {
+		log.Println("DevicePubText(): err = ", err)
+		return
+	}
+    
+    log.Println(string(msg))
+    
+    m.Mqtt.Publish(topic, qos, retain, msg)
+}
+
 // define a function for the default message handler
 //
 var onMessage MQTT.MessageHandler = func(client *MQTT.Client, msg MQTT.Message) {
-    log.Printf("onMessage(): Topic   = %s\n", msg.Topic())
-    log.Printf("onMessage(): Payload = %s\n", msg.Payload())
+    //log.Printf("onMessage(): Topic   = %s\n", msg.Topic())
+    //log.Printf("onMessage(): Payload = %s\n", msg.Payload())
+    defer func() {
+        if r := recover(); r != nil {
+            log.Println("onMessage(): panic recovered; ", r)
+        }
+    }()
     
     m := (*MqttFabric)(client.GetUserData())
 
     tokenizer := strings.Split(msg.Topic(), "/")
     count     := len(tokenizer)
-    log.Printf("onMessage(): count = %d\n", count)
+    //log.Printf("onMessage(): count = %d\n", count)
     
     if tokenizer[2] == "$commands" {
         nodename   := tokenizer[1]
@@ -292,6 +342,12 @@ var onMessage MQTT.MessageHandler = func(client *MQTT.Client, msg MQTT.Message) 
 var onConnect MQTT.OnConnectHandler = func(client *MQTT.Client) {
     log.Printf("onConnect():\n")
     
+    defer func() {
+        if r := recover(); r != nil {
+            log.Println("onConnect(): panic recovered; ", r)
+        }
+    }()
+    
     // get pointer to our MqttFabric data
     m := (*MqttFabric)(client.GetUserData())
     
@@ -311,6 +367,12 @@ var onConnect MQTT.OnConnectHandler = func(client *MQTT.Client) {
 //
 var onDisconnect MQTT.ConnectionLostHandler = func(client *MQTT.Client, err error) {
     log.Printf("onDisconnect():\n")
+    
+    defer func() {
+        if r := recover(); r != nil {
+            log.Println("onDisconnect(): panic recovered; ", r)
+        }
+    }()
     
     // get pointer to our MqttFabric data
     m := (*MqttFabric)(client.GetUserData())
